@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TIMELAPSE TEST.</title>
+<style>
+  :root { box-sizing: border-box; }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+
+  .bg {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    z-index: 0;
+  }
+
+  .title {
+    position: fixed; z-index: 2;
+    top: max(28px, env(safe-area-inset-top));
+    left: max(32px, env(safe-area-inset-left));
+    margin: 0;
+    color: #fff;
+    font: 500 clamp(16px, 2vw, 22px)/1 "Helvetica Neue", Arial, system-ui, sans-serif;
+    letter-spacing: .08em;
+    text-shadow: 0 1px 14px rgba(0,0,0,.35);
+  }
+
+  .arc {
+    position: fixed; z-index: 2;
+    left: 50%; transform: translateX(-50%);
+    bottom: max(28px, env(safe-area-inset-bottom));
+    width: min(600px, 88vw);
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+    outline: none;
+  }
+  .arc svg { display: block; width: 100%; height: auto; overflow: visible; cursor: pointer; }
+
+  .track { fill: none; stroke: rgba(255,255,255,.28); stroke-width: 3; stroke-linecap: round; }
+  .fill  { fill: none; stroke: rgba(255,255,255,.75); stroke-width: 3; stroke-linecap: round; }
+  .hit   { fill: none; stroke: transparent; stroke-width: 56; }
+
+  .dot  { fill: #fff; }
+  .halo { fill: rgba(255,255,255,.18); }
+  .wave {
+    fill: rgba(255,255,255,.14);
+    stroke: rgba(255,255,255,.55);
+    stroke-width: 1;
+    transform-box: fill-box; transform-origin: center;
+    opacity: 0;
+    animation: wave 2.6s cubic-bezier(.2,.6,.3,1) infinite;
+  }
+  .wave:nth-child(2) { animation-delay: .87s; }
+  .wave:nth-child(3) { animation-delay: 1.74s; }
+  .arc.drag .wave { animation-duration: 1.3s; }
+  .arc.drag .halo { fill: rgba(255,255,255,.3); }
+
+  @keyframes wave {
+    0%   { transform: scale(.3); opacity: .9; }
+    100% { transform: scale(1);  opacity: 0; }
+  }
+
+  .arc:focus-visible .dot { stroke: rgba(255,255,255,.9); stroke-width: 3; paint-order: stroke; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wave { animation: none; opacity: .35; transform: scale(.8); }
+  }
+</style>
+</head>
+<body>
+
+<video class="bg" id="video" src="Timelapse_day_to_night_4k.webm"
+       autoplay muted loop playsinline preload="auto"></video>
+
+<h1 class="title">TIMELAPSE TEST.</h1>
+
+<div class="arc" id="arc" role="slider" tabindex="0"
+     aria-label="Posisi video" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+  <svg viewBox="0 0 600 130" aria-hidden="true">
+    <path id="path" class="track" d="M 30 100 Q 300 -8 570 100" />
+    <path id="fill" class="fill" d="M 30 100 Q 300 -8 570 100" pathLength="1" stroke-dasharray="0 1" />
+    <path class="hit" id="hit" d="M 30 100 Q 300 -8 570 100" />
+    <g id="thumb">
+      <circle class="wave" r="30" />
+      <circle class="wave" r="30" />
+      <circle class="wave" r="30" />
+      <circle class="halo" r="15" />
+      <circle class="dot" r="7" />
+    </g>
+  </svg>
+</div>
+
+<script>
+(function () {
+  var video = document.getElementById('video');
+  var arc   = document.getElementById('arc');
+  var svg   = arc.querySelector('svg');
+  var path  = document.getElementById('path');
+  var fill  = document.getElementById('fill');
+  var thumb = document.getElementById('thumb');
+
+  var len = path.getTotalLength();
+  var N = 240, samples = [];
+  for (var i = 0; i <= N; i++) samples.push(path.getPointAtLength(len * i / N));
+
+  var dragging = false, wasPlaying = true, t = 0;
+
+  function render(p) {
+    t = Math.max(0, Math.min(1, p));
+    var pt = path.getPointAtLength(len * t);
+    thumb.setAttribute('transform', 'translate(' + pt.x + ' ' + pt.y + ')');
+    fill.setAttribute('stroke-dasharray', t + ' 1');
+    arc.setAttribute('aria-valuenow', Math.round(t * 100));
+  }
+
+  function toSvg(e) {
+    var m = svg.getScreenCTM().inverse();
+    var p = svg.createSVGPoint();
+    p.x = e.clientX; p.y = e.clientY;
+    return p.matrixTransform(m);
+  }
+
+  function nearest(e) {
+    var p = toSvg(e), best = 0, bd = Infinity;
+    for (var i = 0; i <= N; i++) {
+      var dx = samples[i].x - p.x, dy = samples[i].y - p.y, d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best / N;
+  }
+
+  function seek(p) {
+    render(p);
+    if (video.duration) video.currentTime = t * video.duration;
+  }
+
+  svg.addEventListener('pointerdown', function (e) {
+    dragging = true;
+    wasPlaying = !video.paused;
+    video.pause();
+    arc.classList.add('drag');
+    svg.setPointerCapture(e.pointerId);
+    seek(nearest(e));
+  });
+  svg.addEventListener('pointermove', function (e) { if (dragging) seek(nearest(e)); });
+  function end() {
+    if (!dragging) return;
+    dragging = false;
+    arc.classList.remove('drag');
+    if (wasPlaying) video.play().catch(function () {});
+  }
+  svg.addEventListener('pointerup', end);
+  svg.addEventListener('pointercancel', end);
+
+  arc.addEventListener('keydown', function (e) {
+    var step = e.shiftKey ? 0.1 : 0.02;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp')   { seek(t + step); e.preventDefault(); }
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowDown') { seek(t - step); e.preventDefault(); }
+    if (e.key === 'Home') { seek(0); e.preventDefault(); }
+    if (e.key === 'End')  { seek(1); e.preventDefault(); }
+  });
+
+  function loop() {
+    if (!dragging && video.duration) render(video.currentTime / video.duration);
+    requestAnimationFrame(loop);
+  }
+  render(0);
+  requestAnimationFrame(loop);
+
+  video.play().catch(function () {});
+})();
+</script>
+</body>
+</html>
